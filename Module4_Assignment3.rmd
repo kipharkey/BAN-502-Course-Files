@@ -1,0 +1,88 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Module 4 Assignment 3
+## Kip Harkey
+
+### Libraries
+```{r}
+options(tidyverse.quiet = TRUE)
+library(tidyverse)
+library(ranger)
+library(caret)
+```
+
+### Dataset
+```{r}
+Blood <- read_csv("Blood.csv")
+Blood = Blood %>% mutate(DonatedMarch = as_factor(as.character(DonatedMarch))) %>%
+mutate(DonatedMarch = fct_recode(DonatedMarch,
+"Yes" = "1",
+"No" = "0"))
+```
+
+### Task 1
+
+```{r}
+set.seed(12345)
+train.rows = createDataPartition(y = Blood$DonatedMarch, p=0.7, list = FALSE) 
+train = slice(Blood, train.rows)
+test = slice(Blood, -train.rows)
+```
+
+### Task 2
+
+```{r}
+fit_control = trainControl(method = "cv",
+                           number = 10) 
+set.seed(123)
+rf_fit = train(x=as.matrix(train[,-5]), y=as.matrix(train$DonatedMarch),
+               method = "ranger", 
+               importance = "permutation",
+               trControl = fit_control,num.trees = 100)
+rf_fit
+```
+
+### Task 3
+
+```{r}
+varImp(rf_fit)
+```
+
+The most important variable is TotalDonations and the least important is Mnths_Since_Last.
+
+### Task 4
+
+```{r}
+predRF = predict.train(rf_fit, train)
+head(predRF)
+```
+
+### Task 5
+
+```{r}
+confusionMatrix(predRF, train$DonatedMarch, positive = "Yes")
+```
+
+The accuracy is 0.9027, the sensitivity is 0.608 and the specificity is 0.995
+
+### Task 6
+
+The accuracy of the naive model is 0.762, which is roughly 0.14 lower than the accuracy of this model.
+
+### Task 7
+
+```{r}
+predRF_test = predict.train(rf_fit, test)
+confusionMatrix(predRF_test, test$DonatedMarch, positive = "Yes")
+```
+
+The accuracy of the model decreases significantly to 0.7679, indicating an overfitting of the training data.
+
+### Task 8
+
+This model could be used to forcast supply of blood donations for various months. The model would give an indication of how many people who previously donated blood would return in a particular month. This would help blood donation clinics/organizations with forecasting what portion of demand they are able to supply.
+
+This particular model may need to be tweaked, as the accuracy of the testing data was much lower than the accuracy of the training data. 

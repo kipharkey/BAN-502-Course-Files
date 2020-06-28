@@ -1,0 +1,265 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Module 5 Assignment 1
+## Kip Harkey
+
+### Libraries
+
+```{r}
+library(tidyverse)
+library(caret)
+library(nnet)
+library(rpart)
+library(ranger)
+library(caretEnsemble)
+library(xgboost)
+```
+
+### Dataset
+
+```{r}
+library(readr)
+fin <- read_csv("2018Fin.csv")
+fin<-fin%>%select(Class,`Revenue Growth`, `EPS Diluted`, `EBITDA Margin`, priceBookValueRatio, debtEquityRatio, debtRatio, `PE ratio`, Sector, `5Y Revenue Growth (per Share)`, returnOnAssets, returnOnEquity, returnOnCapitalEmployed,quickRatio)
+fin = fin %>% mutate(Class = as.factor(Class)) %>% 
+mutate(Class = fct_recode(Class, "No" = "0", "Yes" = "1" )) %>%
+mutate(Sector = as.factor(Sector))
+fin<-fin%>%drop_na()
+fin = fin %>% filter(`Revenue Growth` <= 1)
+fin = fin %>% filter(`EPS Diluted` >= -10, `EPS Diluted` <= 10)
+fin = fin %>% filter(`EBITDA Margin` >= -5, `EBITDA Margin` <= 5)
+fin = fin %>% filter(priceBookValueRatio >= 0, priceBookValueRatio <= 5)
+fin = fin %>% filter(debtEquityRatio >= -1, debtEquityRatio <= 2)
+fin = fin %>% filter(debtRatio <= 1)
+fin = fin %>% filter(`PE ratio` <= 100)
+fin = fin %>% filter(returnOnAssets >= -5, returnOnAssets <= 5)
+fin = fin %>% filter(returnOnEquity >= -5, returnOnEquity <= 5)
+fin = fin %>% filter(returnOnCapitalEmployed >= -2, returnOnCapitalEmployed <= 2)
+fin = fin %>% filter(quickRatio <= 20)
+```
+
+### Task 1 
+
+```{r}
+set.seed(123)
+train.rows = createDataPartition(fin$Class,p=0.7,list=FALSE)
+train = dplyr::slice(fin, train.rows)
+test = dplyr::slice(fin, -train.rows)
+```
+
+### Task 2
+
+--Commenting out the below code for runtime:
+
+start_time = Sys.time()
+fitControl = trainControl(method = "cv", number = 10)
+nnetGrid =  expand.grid(size = 1:19,decay = c(0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7))
+set.seed(1234)
+nnetFit = train(x=as.data.frame(fin[,-1]),y=fin$Class, 
+                   method = "nnet",
+                   trControl = fitControl,
+                   tuneGrid = nnetGrid,
+                   trace = FALSE)
+
+end_time = Sys.time()
+end_time-start_time
+
+saveRDS(nnetFit,"nnetfit.rds")
+rm(nnetFit)
+
+
+```{r}
+nnetFit = readRDS("nnetfit.rds")
+```
+
+```{r}
+nnetFit
+plot(nnetFit)
+```
+
+
+### Task 3
+
+```{r}
+predNet = predict(nnetFit, train)
+confusionMatrix(predNet, train$Class, positive = "Yes")
+```
+
+The model has an accuracy of 70%, which is slightly better than the naive model accuracy of 66%. The model has high sensitivity and relatively weak specificity. 
+
+### Task 4 
+
+```{r}
+predNet_test = predict(nnetFit, test)
+confusionMatrix(predNet_test, test$Class, positive = "Yes")
+```
+
+When applied to the testing set, the accuracy, sensitivity and specificity of the model are nearly identical to the training set. This indicates that the model is not overfitting, but is not significantly better than the naive model.
+
+### Task 5
+
+```{r}
+control = trainControl(
+  method = "cv",
+  number = 5, 
+  savePredictions = "final",
+  classProbs = TRUE, 
+  summaryFunction = twoClassSummary,  
+  index=createResample(train$Class) 
+  )
+```
+
+
+--Commenting out the below code for runtime:
+set.seed(111)
+model_list = caretList(
+  x=as.data.frame(train[,-1]), y=train$Class, 
+  metric = "ROC", 
+  trControl= control, 
+  methodList=c("glm","rpart"), 
+  tuneList=list(
+ranger = caretModelSpec(method="ranger", max.depth = 5, tuneGrid =
+expand.grid(mtry = 1:13,
+splitrule = c("gini","extratrees","hellinger"),
+min.node.size=1:5)),
+nn = caretModelSpec(method="nnet", tuneGrid =
+expand.grid(size = 1:23,
+decay = c(0.5, 0.1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7)),trace=FALSE)))
+
+saveRDS(model_list,"model_list.rds")
+
+
+```{r}
+model_list = readRDS("model_list.rds")
+```
+
+### Task 6
+
+```{r}
+modelCor(resamples(model_list))
+```
+
+Ranger, nn, and glm are all highly correlated to each other, rpart has a much weaker correlation to the other models.
+
+### Task 7
+
+```{r}
+ensemble = caretEnsemble(
+  model_list, 
+  metric="ROC",
+  trControl=control)
+
+summary(ensemble)
+
+#Training Set
+pred_ensemble = predict(ensemble, train, type = "raw")
+confusionMatrix(pred_ensemble,train$Class)
+
+#Testing Set
+pred_ensemble_test = predict(ensemble, test, type = "raw")
+confusionMatrix(pred_ensemble_test,test$Class)
+```
+
+The accuracy, specificity, and sensitivity differ significantly between the training and testing sets, indicating the model may overfit. In the testing set, the model is only marginally better than the naive model. 
+
+### Task 8
+
+```{r}
+start_time = Sys.time() 
+
+stack = caretStack(
+  model_list, 
+  method ="glm", 
+  metric ="ROC",
+  trControl=trainControl(
+    method="cv",
+    number=10,
+    savePredictions="final",
+    classProbs=TRUE,
+    summaryFunction=twoClassSummary
+  )
+)
+end_time = Sys.time()
+end_time - start_time
+
+print(stack)
+summary(stack)
+
+#training set
+pred_stack = predict(stack, train, type = "raw")
+confusionMatrix(pred_stack,train$Class)
+
+#testing set
+pred_stack_test = predict(stack, test, type = "raw")
+confusionMatrix(pred_stack_test,test$Class)
+```
+
+Significant improvement is seen in the training set, the testing set has no significant difference from the non-stacked ensemble.
+
+### Task 9
+
+
+```{r}
+train_dummy = dummyVars(" ~ .", data = train) 
+train_xgb = data.frame(predict(train_dummy, newdata = train)) 
+test_dummy = dummyVars(" ~ .", data = test) 
+test_xgb = data.frame(predict(test_dummy, newdata = test)) 
+train_xgb = train_xgb %>% dplyr::select(-Class.No)
+test_xgb = test_xgb %>% dplyr::select(-Class.No)
+str(train_xgb)
+str(test_xgb)
+```
+
+--Commenting out the below code for runtime:
+start_time = Sys.time() #for timing
+
+set.seed(999)
+ctrl = trainControl(method = "cv",
+                     number = 5) #10 fold, k-fold cross-validation
+
+tgrid = expand.grid(
+  nrounds = 100, #50, 100, and 150 in default tuning
+  max_depth = c(1,2,3,4), #1, 2, and 3 in default tuning
+  eta = c(0.01, 0.1, 0.2, 0.3), #0.3 and 0.4 in default tuning
+  gamma = 0, #fixed at 0 in default tuning
+  colsample_bytree = c(0.6, 0.8, 1), #0.6 and 0.6 in default tuning
+  min_child_weight = 1, #fixed at 1 in default tuning
+  subsample = c(0.8, 1) #0.5, 0.75, and 1 in default tuning, we don't have much data so can choose a larger value
+)
+
+fitxgb = train(as.factor(Class.Yes)~.,
+                data = train_xgb,
+                method="xgbTree",
+                tuneGrid = tgrid,
+                trControl=ctrl)
+
+end_time = Sys.time()
+end_time-start_time
+
+saveRDS(fitxgb,"fitxgb.rds")
+rm(fitxgb)
+
+
+```{r}
+fitxgb = readRDS("fitxgb.rds")
+```
+
+```{R}
+fitxgb
+plot(fitxgb)
+```
+
+```{r}
+predxgbtrain = predict(fitxgb, train_xgb)
+confusionMatrix(as.factor(train_xgb$Class.Yes), predxgbtrain,positive="1")
+```
+
+```{r}
+predxgbtest = predict(fitxgb, test_xgb)
+confusionMatrix(as.factor(test_xgb$Class.Yes), predxgbtest,positive="1")
+```
+
+The accuracy of the model on the training set is only slightly better than the naive model, and significantly more accurate than the testing set, indicating overfitting. The testing set also produces significantly worse accuracy than the naive model.

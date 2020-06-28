@@ -1,0 +1,113 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+# Module 6 - Assignment 1
+## Kip Harkey
+
+### Libraries
+
+```{r}
+options(tidyverse.quiet=TRUE)
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(dendextend)
+```
+
+### Datasets
+
+```{r}
+library(readr)
+trucks <- read_csv("trucks.csv")
+```
+
+### Task 1
+
+```{r}
+ggplot(trucks,aes(Distance,Speeding))+geom_point()
+```
+
+There appears to be clustering going in in the average distance traveled; two primary clusters near 50 miles and 175 miles. 
+
+### Task 2
+
+```{r}
+trucks <- trucks %>% select(Distance,Speeding)
+trucks2<-as.data.frame(scale(trucks))
+```
+
+### Task 3
+
+```{r}
+set.seed(64)
+clusters <- kmeans(trucks2, 2)
+fviz_cluster(clusters, trucks2)
+```
+
+ As observed in Task 1, there exists two clusters splitting the Distance variable.
+
+###Task 4
+
+```{r}
+set.seed(64)
+fviz_nbclust(trucks2, kmeans, method = "wss") 
+```
+
+ Another method  
+```{r}
+set.seed(64)
+fviz_nbclust(trucks2, kmeans, method = "silhouette") 
+```
+
+ Both methods indicate that the ideal number of clusters is 4.
+
+### Task 5
+
+```{r}
+set.seed(64)
+clusters <- kmeans(trucks2, 4)
+fviz_cluster(clusters, trucks2)
+```
+### Task 6
+
+The clusters seem to break up the drivers into four quadrants:
+  -Drivers traveling a short distance and are not speeding
+  -Drivers traveling a long distance and are not speeding
+  -Drivers traveling a short distance and are speeding
+  -Drivers traveling a long distance and are speeding
+  
+  
+```{r}
+kenpom20 <- read_csv("kenpom20.csv")
+```
+  
+
+###Task 7
+
+```{r}
+bball2 <- kenpom20 %>% select(-TeamName)
+bball2<-as.data.frame(scale(bball2))
+set.seed(123)
+fviz_nbclust(bball2, kmeans, method = "wss") 
+fviz_nbclust(bball2, kmeans, method = "silhouette") 
+```
+
+ There does not appear to be a consensus as to the number of clusters between the two methods.
+
+### Task 8
+
+```{r}
+set.seed(1234)
+clusters2 <- kmeans(bball2, 4)
+fviz_cluster(clusters2, bball2)
+```
+### Task 9
+
+```{r}
+bball2 = bball2 %>% mutate(clusternum = clusters2$cluster)
+ggplot(bball2,aes(AdjOE,AdjDE,color = factor(clusternum)))+geom_point()
+```
+
+ Clusters 1  and 3 appear to be centrally focused, whereas clusters 2 and 3 appear to be on either end of a negative correlation. 
